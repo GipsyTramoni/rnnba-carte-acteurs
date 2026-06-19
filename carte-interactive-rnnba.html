@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acteurs & Usages – RNN du Banc d'Arguin</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Nunito', sans-serif;
+    background: #0a1628;
+    color: #fff;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  /* ── FOND CARTE ─────────────────────────────────────────────────── */
+  #map-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+
+  #map-svg {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0; left: 0;
+  }
+
+  /* ── VAGUES ANIMÉES ─────────────────────────────────────────────── */
+  .wave-anim {
+    animation: waveShift 8s ease-in-out infinite alternate;
+  }
+  @keyframes waveShift {
+    from { transform: translateX(0); }
+    to   { transform: translateX(12px); }
+  }
+
+  /* ── MARQUEURS ──────────────────────────────────────────────────── */
+  .marker-group {
+    cursor: pointer;
+    transition: transform 0.2s;
+    transform-origin: center;
+  }
+  .marker-group:hover .marker-ring {
+    r: 22;
+    opacity: 0.4;
+  }
+  .marker-ring {
+    transition: r 0.2s, opacity 0.2s;
+  }
+  .marker-pulse {
+    animation: pulse 2.5s ease-in-out infinite;
+    transform-origin: center;
+  }
+  @keyframes pulse {
+    0%,100% { r: 14; opacity: 0.25; }
+    50%      { r: 22; opacity: 0.0; }
+  }
+  .marker-icon-circle {
+    filter: drop-shadow(0 3px 8px rgba(0,0,0,0.55));
+    transition: transform 0.15s;
+  }
+  .marker-group:hover .marker-icon-circle {
+    transform: scale(1.18) translateY(-3px);
+  }
+
+  /* ── RIPPLE AU CLIC ─────────────────────────────────────────────── */
+  .ripple-circle {
+    pointer-events: none;
+    animation: ripple 0.9s ease-out forwards;
+    transform-origin: center;
+  }
+  @keyframes ripple {
+    from { r: 10; opacity: 0.9; stroke-width: 3; }
+    to   { r: 70; opacity: 0;   stroke-width: 0.5; }
+  }
+
+  /* ── LÉGENDE ────────────────────────────────────────────────────── */
+  #legend {
+    position: absolute;
+    bottom: 18px;
+    left: 18px;
+    background: rgba(10,22,40,0.88);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 14px;
+    padding: 12px 16px;
+    z-index: 100;
+    max-width: 240px;
+  }
+  #legend h3 {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+    margin-bottom: 8px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.85);
+    cursor: pointer;
+    border-radius: 6px;
+    padding: 2px 4px;
+    transition: background 0.2s;
+  }
+  .legend-item:hover { background: rgba(255,255,255,0.08); }
+  .legend-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* ── TITRE ──────────────────────────────────────────────────────── */
+  #title-box {
+    position: absolute;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    z-index: 100;
+    pointer-events: none;
+  }
+  #title-box h1 {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.8);
+    white-space: nowrap;
+  }
+  #title-box p {
+    font-size: 11px;
+    color: rgba(255,255,255,0.55);
+    margin-top: 2px;
+  }
+
+  /* ── POPUP ──────────────────────────────────────────────────────── */
+  #popup {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.85);
+    background: rgba(10,22,40,0.97);
+    backdrop-filter: blur(16px);
+    border-radius: 18px;
+    padding: 22px 26px;
+    max-width: 360px;
+    width: 88vw;
+    z-index: 200;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s, transform 0.25s;
+    border: 1px solid rgba(255,255,255,0.13);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+  }
+  #popup.visible {
+    opacity: 1;
+    pointer-events: all;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  #popup-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  #popup-icon-circle {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px;
+    flex-shrink: 0;
+  }
+  #popup-title { font-size: 15px; font-weight: 800; line-height: 1.3; }
+  #popup-cat   { font-size: 11px; font-weight: 600; opacity: 0.65; margin-top: 2px; }
+  #popup-body  { font-size: 12.5px; line-height: 1.7; color: rgba(255,255,255,0.78); }
+  #popup-actors {
+    margin-top: 12px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 11.5px;
+    line-height: 1.8;
+  }
+  #popup-actors strong { color: #fff; font-weight: 700; }
+  #popup-close {
+    position: absolute;
+    top: 14px; right: 16px;
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: #fff;
+    border-radius: 50%;
+    width: 28px; height: 28px;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.2s;
+  }
+  #popup-close:hover { background: rgba(255,255,255,0.22); }
+
+  /* ── OVERLAY ────────────────────────────────────────────────────── */
+  #overlay {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 150;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s;
+  }
+  #overlay.visible { opacity: 1; pointer-events: all; }
+
+  /* ── HINT ───────────────────────────────────────────────────────── */
+  #hint {
+    position: absolute;
+    bottom: 18px; right: 18px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.35);
+    z-index: 100;
+    pointer-events: none;
+    text-align: right;
+  }
+</style>
+</head>
+<body>
+
+<div id="map-container">
+
+  <!-- ══ SVG CARTE STYLISÉE ══════════════════════════════════════════════ -->
+  <svg id="map-svg" viewBox="0 0 900 600" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <!-- Gradient océan -->
+      <linearGradient id="oceanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%"   stop-color="#0d3b6e"/>
+        <stop offset="100%" stop-color="#0a1e40"/>
+      </linearGradient>
+      <!-- Gradient terre -->
+      <linearGradient id="landGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%"   stop-color="#2d5a1b"/>
+        <stop offset="100%" stop-color="#1a3a0d"/>
+      </linearGradient>
+      <!-- Gradient bassin -->
+      <linearGradient id="bassinGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%"   stop-color="#1a5276"/>
+        <stop offset="100%" stop-color="#0e3a5c"/>
+      </linearGradient>
+      <!-- Gradient banc -->
+      <linearGradient id="bancGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%"   stop-color="#d4a84b"/>
+        <stop offset="100%" stop-color="#c49a38"/>
+      </linearGradient>
+      <!-- Glow filter -->
+      <filter id="glow">
+        <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+        <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <!-- Soft shadow -->
+      <filter id="softShadow">
+        <feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="rgba(0,0,0,0.5)"/>
+      </filter>
+    </defs>
+
+    <!-- Fond océan -->
+    <rect width="900" height="600" fill="url(#oceanGrad)"/>
+
+    <!-- Vagues animées (léger) -->
+    <g class="wave-anim" opacity="0.06">
+      <path d="M0,200 Q150,190 300,200 Q450,210 600,200 Q750,190 900,200 L900,220 Q750,210 600,220 Q450,230 300,220 Q150,210 0,220Z" fill="#4fc3f7"/>
+      <path d="M0,350 Q150,340 300,350 Q450,360 600,350 Q750,340 900,350 L900,365 Q750,355 600,365 Q450,375 300,365 Q150,355 0,365Z" fill="#4fc3f7"/>
+    </g>
+
+    <!-- ── PÉNINSULE (côte landaise / capferret) ── -->
+    <!-- Côte Atlantique (bande sable) -->
+    <rect x="0" y="0" width="160" height="600" fill="#c9a84c" opacity="0.15" rx="0"/>
+
+    <!-- Presqu'île du Cap Ferret -->
+    <path d="M 250,0 L 310,0 L 295,80 L 280,160 L 265,240 L 255,320 L 248,400 L 242,480 L 238,560 L 235,600
+             L 210,600 L 212,520 L 215,440 L 218,360 L 222,280 L 226,200 L 230,120 L 235,60 Z"
+          fill="url(#landGrad)" opacity="0.88"/>
+
+    <!-- Label Cap Ferret -->
+    <text x="255" y="120" font-family="Nunito" font-size="9" fill="rgba(255,255,255,0.5)" transform="rotate(-90,255,120)" text-anchor="middle">Presqu'île Cap Ferret</text>
+
+    <!-- ── CÔTE EST (Arcachon / La Teste) ── -->
+    <path d="M 560,600 L 560,490 Q 565,460 575,440 Q 590,415 610,400 Q 635,385 660,375
+             Q 700,360 740,350 Q 780,340 820,330 Q 860,320 900,315 L 900,600 Z"
+          fill="url(#landGrad)" opacity="0.88"/>
+
+    <!-- ── BASSIN D'ARCACHON ── -->
+    <path d="M 310,30 Q 340,15 380,18 Q 430,20 475,35 Q 530,55 560,90
+             Q 585,120 590,160 Q 595,200 585,240 Q 570,290 545,330
+             Q 520,365 490,390 Q 460,415 430,425 Q 400,432 370,428
+             Q 340,420 315,400 Q 285,375 268,340 Q 248,295 248,245
+             Q 247,195 255,150 Q 263,100 285,65 Z"
+          fill="url(#bassinGrad)" opacity="0.92"/>
+
+    <!-- Reflets bassin -->
+    <path d="M 340,80 Q 400,65 460,85 Q 510,105 530,145 Q 510,130 460,115 Q 410,100 360,108 Z"
+          fill="rgba(255,255,255,0.04)"/>
+
+    <!-- ── DUNE DU PILAT ── -->
+    <path d="M 248,520 Q 255,500 260,480 Q 262,460 258,440 Q 254,418 248,400
+             Q 242,418 238,440 Q 234,460 236,480 Q 240,500 248,520Z"
+          fill="#e0c97a" opacity="0.7"/>
+    <text x="218" y="468" font-family="Nunito" font-size="8.5" fill="rgba(255,220,100,0.7)" font-weight="700" transform="rotate(-90,218,468)" text-anchor="middle">Dune du Pilat</text>
+
+    <!-- ── BANC D'ARGUIN ── ★ ZONE CENTRALE ★ ── -->
+    <ellipse cx="330" cy="360" rx="55" ry="28" fill="url(#bancGrad)" opacity="0.9" filter="url(#softShadow)"/>
+    <!-- Texture sable banc -->
+    <ellipse cx="330" cy="358" rx="42" ry="20" fill="#e8d47a" opacity="0.5"/>
+    <ellipse cx="326" cy="362" rx="28" ry="13" fill="#f0e090" opacity="0.35"/>
+    <!-- Label Banc d'Arguin -->
+    <text x="330" y="364" font-family="Nunito" font-size="9.5" font-weight="800" fill="#3a2800" text-anchor="middle" opacity="0.85">Banc d'Arguin</text>
+    <text x="330" y="375" font-family="Nunito" font-size="7.5" fill="#5a3800" text-anchor="middle" opacity="0.7">RNN</text>
+
+    <!-- ── ZONES D'IMPLANTATION OSTRÉICOLES (ZIO) ── -->
+    <!-- ZIO schématiques sur le banc -->
+    <rect x="285" y="348" width="18" height="10" rx="2" fill="none" stroke="#ff9900" stroke-width="1.2" opacity="0.6"/>
+    <rect x="308" y="342" width="18" height="10" rx="2" fill="none" stroke="#ff9900" stroke-width="1.2" opacity="0.6"/>
+    <rect x="332" y="348" width="18" height="10" rx="2" fill="none" stroke="#ff9900" stroke-width="1.2" opacity="0.6"/>
+    <text x="330" y="393" font-family="Nunito" font-size="7" fill="rgba(255,153,0,0.6)" text-anchor="middle">ZIO ostréicoles</text>
+
+    <!-- ── NOMS DES VILLES ── -->
+    <!-- Arcachon -->
+    <circle cx="490" cy="430" r="4" fill="#fff" opacity="0.7"/>
+    <text x="498" y="433" font-family="Nunito" font-size="10" font-weight="700" fill="rgba(255,255,255,0.75)">Arcachon</text>
+
+    <!-- La Teste -->
+    <circle cx="520" cy="470" r="3.5" fill="#fff" opacity="0.6"/>
+    <text x="528" y="473" font-family="Nunito" font-size="9" fill="rgba(255,255,255,0.6)">La Teste-de-Buch</text>
+
+    <!-- Gujan-Mestras -->
+    <circle cx="540" cy="390" r="3.5" fill="#fff" opacity="0.6"/>
+    <text x="548" y="393" font-family="Nunito" font-size="9" fill="rgba(255,255,255,0.6)">Gujan-Mestras</text>
+
+    <!-- Bordeaux (loin) -->
+    <circle cx="820" cy="120" r="4" fill="#fff" opacity="0.5"/>
+    <text x="828" y="123" font-family="Nunito" font-size="9" fill="rgba(255,255,255,0.5)">Bordeaux</text>
+
+    <!-- ── PASSE D'ENTRÉE ── -->
+    <path d="M 248,400 Q 290,390 310,380 Q 320,374 330,370" fill="none" stroke="rgba(100,200,255,0.3)" stroke-width="1.5" stroke-dasharray="4,3"/>
+    <text x="278" y="402" font-family="Nunito" font-size="7.5" fill="rgba(100,200,255,0.45)" transform="rotate(-10,278,402)">Passe Sud</text>
+
+    <!-- ── COMPASS ── -->
+    <g transform="translate(845,55)" opacity="0.55">
+      <circle r="22" fill="rgba(0,0,0,0.35)" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+      <polygon points="0,-16 4,0 0,-4 -4,0" fill="#e74c3c"/>
+      <polygon points="0,16 4,0 0,4 -4,0" fill="rgba(255,255,255,0.5)"/>
+      <text y="-19" font-family="Nunito" font-size="8" font-weight="800" fill="#e74c3c" text-anchor="middle">N</text>
+    </g>
+
+    <!-- ── ÉCHELLE ── -->
+    <g transform="translate(650,575)" opacity="0.5">
+      <line x1="0" y1="0" x2="80" y2="0" stroke="white" stroke-width="2"/>
+      <line x1="0" y1="-5" x2="0" y2="5" stroke="white" stroke-width="1.5"/>
+      <line x1="80" y1="-5" x2="80" y2="5" stroke="white" stroke-width="1.5"/>
+      <text x="40" y="-7" font-family="Nunito" font-size="8" fill="white" text-anchor="middle">~5 km</text>
+    </g>
+
+    <!-- ══ MARQUEURS ACTEURS ════════════════════════════════════════════════ -->
+    <!-- Chaque marqueur : id, cx, cy, catégorie, couleur, emoji, nom court -->
+
+    <!-- 1. SEPANSO – Gestionnaire (sur le banc / légèrement sur la côte) -->
+    <g class="marker-group" id="m-sepanso" data-id="sepanso" transform="translate(330,310)">
+      <circle class="marker-pulse" r="14" fill="#004C97" opacity="0.25"/>
+      <circle class="marker-ring" r="18" fill="none" stroke="#004C97" stroke-width="1.5" opacity="0.3"/>
+      <circle class="marker-icon-circle" r="13" fill="#004C97"/>
+      <text y="5" font-size="14" text-anchor="middle" dominant-baseline="middle">🏛️</text>
+      <text y="26" font-family="Nunito" font-size="8" font-weight="700" fill="white" text-anchor="middle" filter="url(#glow)">SEPANSO</text>
+    </g>
+
+    <!-- 2. DDTM 33 – Services État (Arcachon) -->
+    <g class="marker-group" id="m-ddtm" data-id="ddtm" transform="translate(490,470)">
+      <circle class="marker-pulse" r="14" fill="#003189" opacity="0.25"/>
+      <circle class="marker-ring" r="18" fill="none" stroke="#003189" stroke-width="1.5" opacity="0.3"/>
+      <circle class="marker-icon-circle" r="13" fill="#003189"/>
+      <text y="5" font-size="14" text-anchor="middle" dominant-baseline="middle">⚖️</text>
+      <text y="26" font-family="Nunito" font-size="8" font-weight="700" fill="white" text-anchor="middle">DDTM 33</text>
+    </g>
+
+    <!-- 3. Préfet de Gironde (Bordeaux) -->
+    <g class="marker-group" id="m-prefet" data-id="prefet" transform="translate(820,150)">
+      <circle class="marker-pulse" r="13" fill="#003189" opacity="0.22"/>
+      <circle class="marker-ring" r="17" fill="none" stroke="#003189" stroke-width="1.5" opacity="0.3"/>
+      <circle class="marker-icon-circle" r="12" fill="#1a3a8c"/>
+      <text y="4" font-size="13" text-anchor="middle" dominant-baseline="middle">🏛</text>
+      <text y="24" font-family="Nunito" font-size="7.5" font-weight="700" fill="white" text-anchor="middle">Préfet 33</text>
+    </g>
+
+    <!-- 4. DREAL (Bordeaux) -->
+    <g class="marker-group" id="m-dreal" data-id="dreal" transform="translate(780,200)">
+      <circle class="marker-pulse" r="12" fill="#003189" opacity="0.22"/>
+      <circle class="marker-ring" r="16" fill="none" stroke="#003189" stroke-width="1.5" opacity="0.3"/>
+      <circle class="marker-icon-circle" r="11" fill="#003189"/>
+      <text y="4" font-size="12" text-anchor="middle" dominant-baseline="middle">🌿</text>
+      <text y="23" font-family="Nunito" font-size="7" font-weight="700" fill="white" text-anchor="middle">DREAL</text>
+    </g>
+
+    <!-- 5. OFB/PNMBA – Contrôle (Arcachon) -->
+    <g class="marker-group" id="m-ofb" data-id="ofb" transform="translate(460,390)">
+      <circle class="marker-pulse" r="14" fill="#C0392B" opacity="0.3"/>
+      <circle class="marker-ring" r="18" fill="none" stroke="#C0392B" stroke-width="1.5" opacity="0.35"/>
+      <circle class="marker-icon-circle" r="13" fill="#C0392B"/>
+      <text y="5" font-size="14" text-anchor="middle" dominant-baseline="middle">🦅</text>
+      <text y="26" font-family="Nunito" font-size="8" font-weight="700" fill="white" text-anchor="middle">OFB/PNMBA</text>
+    </g>
+
+    <!-- 6. CRCAA – Professionnels ostréicoles (Gujan-Mestras) -->
+    <g class="marker-group" id="m-crcaa" data-id="crcaa" transform="translate(540,355)">
+      <circle class="marker-pulse" r="14" fill="#E67E22" opacity="0.3"/>
+      <circle class="marker-ring" r="18" fill="none" stroke="#E67E22" stroke-width="1.5" opacity="0.35"/>
+      <circle class="marker-icon-circle" r="13" fill="#E67E22"/>
+      <text y="5" font-size="14" text-anchor="middle" dominant-baseline="middle">🦪</text>
+      <text y="26" font-family="Nunito" font-size="8" font-weight="700" fill="white" text-anchor="middle">CRCAA</text>
+    </g>
+
+    <!-- 7. Ostréiculteurs – sur le Banc -->
+    <g class="marker-group" id="m-ostreiculteurs" data-id="ostreiculteurs" transform="translate(300,370)">
+      <circle class="marker-pulse" r="14" fill="#E67E22" opacity="0.28"/>
+      <circle class="marker-ring" r="18" fill="none" stroke="#E67E22" stroke-width="1.5" opacity="0.3"/>
+      <circle class="marker-icon-circle" r="13" fill="#d4680f"/>
+      <text y="5" font-size="14" text-anchor="middle" dominant-baseline="middle">⛵</text>
+      <text y="26" font-family="Nunito" font-size="7.5" font-weight="700" fill="white" text-anchor="middle">Ostréiculteurs</text>
+    </g>
+
+    <!-- 8. IFREMER/CAPENA – Expertise scientifique -->
+    <g class="marker-group" id="m-capena" data-id="capena" transform="translate(510,530)">
+      <circle class="marker-pulse" r="13" fill="#1E8449" opacity="0.28"/>
+      <circle class="marker-ring" r="17" fill="none" stroke="#1E8449" stroke-width="1.5" opacity="0.3"/>
+      <circle class="marker-icon-circle" r="12" fill="#1E8449"/>
+      <text y="4" font-size="13" text-anchor="middle" dominant-baseline="middle">🔬</text>
+      <text y="23" font-family="Nunito" font-size="7.5" font-weight="700" fill="white" text-anchor="middle">CAPENA/Ifremer</text>
+    </g>
+
+    <!-- 9. CSRPN – Expertise conseil -->
+    <g class="marker-group" id="m-csrpn" data-id="csrpn" transform="translate(720,250)">
+      <circle class="marker-pulse" r="12" fill="#1E8449" opacity="0.25"/>
+      <circle class="marker-ring" r="16" fill="none" stroke="#1E8449" stroke-width="1.5" opacity="0.3"/>
+      <circle class="marker-icon-circle" r="11" fill="#1E8449"/>
+      <text y="4" font-size="12" text-anchor="middle" dominant-baseline="middle">📋</text>
+      <text y="23" font-family="Nunito" font-size="7" font-weight="700" fill="white" text-anchor="middle">CSRPN</text>
+    </g>
+
+    <!-- 10. BRGM – Suivi technique -->
+    <g class="marker-group" id="m-brgm" data-id="brgm" transform="translate(680,310)">
+      <circle class="marker-pulse" r="12" fill="#5D6D7E" opacity="0.28"/>
+      <circle class="marker-ring" r="16" fill="none" stroke="#5D6D7E" stroke-width="1.5" opacity="0.3"/>
+      <circle class="marker-icon-circle" r="11" fill="#5D6D7E"/>
+      <text y="4" font-size="12" text-anchor="middle" dominant-baseline="middle">🗺️</text>
+      <text y="23" font-family="Nunito" font-size="7" font-weight="700" fill="white" text-anchor="middle">BRGM</text>
+    </g>
+
+    <!-- 11. SIBA – Collectivités -->
+    <g class="marker-group" id="m-siba" data-id="siba" transform="translate(565,445)">
+      <circle class="marker-pulse" r="12" fill="#7D3C98" opacity="0.25"/>
+      <circle class="marker-ring" r="16" fill="none" stroke="#7D3C98" stroke-width="1.5" opacity="0.3"/>
+      <circle class="marker-icon-circle" r="11" fill="#7D3C98"/>
+      <text y="4" font-size="12" text-anchor="middle" dominant-baseline="middle">🏘️</text>
+      <text y="23" font-family="Nunito" font-size="7" font-weight="700" fill="white" text-anchor="middle">SIBA</text>
+    </g>
+
+    <!-- 12. RNF – Réseau -->
+    <g class="marker-group" id="m-rnf" data-id="rnf" transform="translate(855,300)">
+      <circle class="marker-pulse" r="11" fill="#17A589" opacity="0.22"/>
+      <circle class="marker-ring" r="15" fill="none" stroke="#17A589" stroke-width="1.5" opacity="0.3"/>
+      <circle class="marker-icon-circle" r="10" fill="#17A589"/>
+      <text y="4" font-size="11" text-anchor="middle" dominant-baseline="middle">🌐</text>
+      <text y="22" font-family="Nunito" font-size="7" font-weight="700" fill="white" text-anchor="middle">RNF</text>
+    </g>
+
+    <!-- Conteneur ripples (ajouté dynamiquement) -->
+    <g id="ripple-container"></g>
+  </svg>
+
+  <!-- ══ TITRE ══════════════════════════════════════════════════════════════ -->
+  <div id="title-box">
+    <h1>🌊 Acteurs & Usages — RNN du Banc d'Arguin</h1>
+    <p>Cliquez sur un acteur pour découvrir son rôle</p>
+  </div>
+
+  <!-- ══ LÉGENDE ════════════════════════════════════════════════════════════ -->
+  <div id="legend">
+    <h3>Catégories</h3>
+    <div class="legend-item"><span class="legend-dot" style="background:#004C97"></span>Gestionnaire de la réserve</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#003189"></span>Services de l'État / Tutelle</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#C0392B"></span>Contrôle &amp; Surveillance</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#1E8449"></span>Expertise scientifique</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#E67E22"></span>Professionnels ostréicoles</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#7D3C98"></span>Partenaires &amp; collectivités</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#5D6D7E"></span>Suivi technique</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#17A589"></span>Réseau &amp; Appui</div>
+  </div>
+
+  <!-- ══ OVERLAY ════════════════════════════════════════════════════════════ -->
+  <div id="overlay"></div>
+
+  <!-- ══ POPUP ══════════════════════════════════════════════════════════════ -->
+  <div id="popup">
+    <button id="popup-close" onclick="closePopup()">✕</button>
+    <div id="popup-header">
+      <div id="popup-icon-circle"></div>
+      <div>
+        <div id="popup-title"></div>
+        <div id="popup-cat"></div>
+      </div>
+    </div>
+    <div id="popup-body"></div>
+    <div id="popup-actors"></div>
+  </div>
+
+  <div id="hint">🔊 Son activé au clic</div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════════
+// DONNÉES DES ACTEURS
+// ══════════════════════════════════════════════════════════════════════════════
+const acteurs = {
+  sepanso: {
+    nom: "SEPANSO Aquitaine",
+    cat: "Gestionnaire de la réserve",
+    emoji: "🏛️",
+    couleur: "#004C97",
+    cx: 330, cy: 310,
+    role: "Gestionnaire officiel de la RNNBA depuis 1972. Pilote le Plan de gestion 2024-2033 et porte le projet ALEOP (Fonds Vert).",
+    acteurs: "Xavier Chevillot (Directeur) · Benoit Dumeau (Conservateur) · Gipsy Tramoni (Chargée de mission Ostréiculture)",
+    droits: "Autorité de gestion : définit les conditions d'accès, délivre les autorisations, assure la surveillance écologique.",
+    son: { freq: 220, type: "sine", duration: 1.2, env: [0.01,0.3,0.6,0.4] }
+  },
+  ddtm: {
+    nom: "DDTM 33",
+    cat: "Services de l'État / Tutelle",
+    emoji: "⚖️",
+    couleur: "#003189",
+    cx: 490, cy: 470,
+    role: "3 services distincts : SDML (pilote SDS 33), Unité Cultures Marines (délivre les AECM/concessions), SEN (enjeux eau et nature).",
+    acteurs: "Delphine Cathala (cheffe SDML) · Camille Lahouze (cheffe UCM) · Roland Berthomieu (adjoint SDML)",
+    droits: "Délivre et renouvelle les concessions ostréicoles (AECM 5 ans). Pilote la Commission des Cultures Marines. Révise le SDS 33.",
+    son: { freq: 330, type: "triangle", duration: 1.0, env: [0.01,0.2,0.5,0.35] }
+  },
+  prefet: {
+    nom: "Préfet de Gironde",
+    cat: "Services de l'État / Tutelle",
+    emoji: "🏛",
+    couleur: "#1a3a8c",
+    cx: 820, cy: 150,
+    role: "Autorité de tutelle de la RNNBA. Approuve le Plan de gestion et signe tous les arrêtés réglementaires (ZIO, pêche, classement).",
+    acteurs: "Préfet de la Gironde · Sous-préfecture d'Arcachon · DIRM · DDPP Gironde",
+    droits: "Décision finale sur tous les actes réglementaires de la réserve et du SDS 33.",
+    son: { freq: 280, type: "triangle", duration: 1.1, env: [0.01,0.25,0.55,0.4] }
+  },
+  dreal: {
+    nom: "DREAL Nouvelle-Aquitaine",
+    cat: "Services de l'État / Tutelle",
+    emoji: "🌿",
+    couleur: "#003189",
+    cx: 780, cy: 200,
+    role: "Tutelle technique des réserves naturelles nationales. Contrôle la gestion de la SEPANSO. Instruit les évaluations environnementales.",
+    acteurs: "Sophie Kerloc'h (DREAL/SPN/DBMAP) · Guillaume Gizon (milieu marin)",
+    droits: "Contrôle de la conformité des actes du gestionnaire. Avis sur les modifications réglementaires.",
+    son: { freq: 310, type: "triangle", duration: 0.9, env: [0.01,0.2,0.5,0.3] }
+  },
+  ofb: {
+    nom: "OFB / PNMBA",
+    cat: "Contrôle & Surveillance",
+    emoji: "🦅",
+    couleur: "#C0392B",
+    cx: 460, cy: 390,
+    role: "Police de la nature sur la RNNBA. Agents assermentés habilités à constater les infractions. Le périmètre PNMBA englobe entièrement la réserve.",
+    acteurs: "Hervé Caroff (Directeur délégué adjoint) · Kevin Leleu (Chargé de mission Usages Maritimes)",
+    droits: "Patrouilles régulières sur le banc. Verbalisation des infractions à la réglementation de la réserve.",
+    son: { freq: 440, type: "sawtooth", duration: 0.7, env: [0.01,0.1,0.4,0.25] }
+  },
+  crcaa: {
+    nom: "CRCAA",
+    cat: "Professionnels ostréicoles",
+    emoji: "🦪",
+    couleur: "#E67E22",
+    cx: 540, cy: 355,
+    role: "Organisation professionnelle représentant ~300 entreprises ostréicoles du Bassin d'Arcachon. Co-porteur du COPIL ALEOP avec la SEPANSO.",
+    acteurs: "Olivier Laban (Président) · Matthieu Cabaussel (Directeur) · Florence Vivier (DPM) · Laurent Bidard (élu pro.)",
+    droits: "Représentation de la filière. Lance les appels d'offre (nettoyages). Aucune autorité directe sur les parcs individuels.",
+    son: { freq: 392, type: "sine", duration: 1.3, env: [0.01,0.4,0.7,0.5] }
+  },
+  ostreiculteurs: {
+    nom: "Ostréiculteurs concessionnaires",
+    cat: "Professionnels ostréicoles",
+    emoji: "⛵",
+    couleur: "#d4680f",
+    cx: 300, cy: 370,
+    role: "~300 entreprises indépendantes exploitant ~45 ha sur 3 Zones d'Implantation Ostréicoles (ZIO). Seuls usagers autorisés à exercer une activité commerciale sur le Banc.",
+    acteurs: "36 professionnels rencontrés lors des entretiens ALEOP 2025. Ports d'attache : La Teste, Gujan-Mestras, Arcachon.",
+    droits: "AECM renouvelées tous les 5 ans (sans indemnités sur Arguin). Obligations : entretien des parcs, respect du Cahier des Charges ostréicole.",
+    son: { freq: 370, type: "sine", duration: 1.5, env: [0.01,0.5,0.8,0.6] }
+  },
+  capena: {
+    nom: "CAPENA / IFREMER",
+    cat: "Expertise scientifique",
+    emoji: "🔬",
+    couleur: "#1E8449",
+    cx: 510, cy: 530,
+    role: "CAPENA = Centre pour l'Aquaculture, la Pêche et l'Environnement de Nouvelle-Aquitaine. Expertise scientifique sur les pratiques aquacoles et leur impact. Membre du Comité de suivi ALEOP.",
+    acteurs: "CAPENA (IFREMER La Teste) · Station Marine d'Arcachon (C. Masse, N. Lavesque) · PatriNat (OFB/MNHN/CNRS/IRD)",
+    droits: "Expertise technique et scientifique. Prestataire sur appel d'offre. Aucune autorité de gestion.",
+    son: { freq: 528, type: "sine", duration: 1.4, env: [0.01,0.3,0.65,0.45] }
+  },
+  csrpn: {
+    nom: "CSRPN",
+    cat: "Expertise scientifique",
+    emoji: "📋",
+    couleur: "#1E8449",
+    cx: 720, cy: 250,
+    role: "Conseil Scientifique Régional du Patrimoine Naturel. Émet des avis consultatifs obligatoires avant certaines opérations sur la réserve (travaux, modifications ZIO).",
+    acteurs: "Michel Lecompte (membre) · CDNPS (Conseil Départemental Nature, Paysages et Sites)",
+    droits: "Avis consultatif sans autorité directe. Mais son avis est nécessaire avant certaines interventions.",
+    son: { freq: 490, type: "sine", duration: 1.1, env: [0.01,0.25,0.6,0.4] }
+  },
+  brgm: {
+    nom: "BRGM",
+    cat: "Suivi technique",
+    emoji: "🗺️",
+    couleur: "#5D6D7E",
+    cx: 680, cy: 310,
+    role: "Bureau de Recherches Géologiques et Minières. Suivi géomorphologique du Banc d'Arguin : dynamique sédimentaire, évolution du banc, risques côtiers.",
+    acteurs: "Direction Régionale Nouvelle-Aquitaine (Pessac). Rencontré dans le cadre du projet ALEOP (mai 2025).",
+    droits: "Prestataire d'expertise géoscientifique. Aucune autorité de gestion.",
+    son: { freq: 196, type: "triangle", duration: 1.0, env: [0.01,0.2,0.5,0.35] }
+  },
+  siba: {
+    nom: "SIBA",
+    cat: "Partenaires & collectivités",
+    emoji: "🏘️",
+    couleur: "#7D3C98",
+    cx: 565, cy: 445,
+    role: "Syndicat Intercommunal du Bassin d'Arcachon. Gestion de la qualité des eaux. Interlocuteur sur les questions de pollution et d'usage du Bassin.",
+    acteurs: "SIBA (La Teste-de-Buch) · CDPMEM 33 (pêcheurs professionnels) · SMPBA (ports du Bassin)",
+    droits: "Aucune autorité directe sur la réserve. Interlocuteur sur la qualité des eaux et les usages du Bassin.",
+    son: { freq: 294, type: "triangle", duration: 1.2, env: [0.01,0.3,0.6,0.4] }
+  },
+  rnf: {
+    nom: "RNF / PNMEGMP",
+    cat: "Réseau & Appui",
+    emoji: "🌐",
+    couleur: "#17A589",
+    cx: 855, cy: 300,
+    role: "Réserves Naturelles de France : fédération nationale qui appuie la SEPANSO et capitalise les bonnes pratiques. PNMEGMP : expert sur les pratiques ostréicoles du secteur Verdon.",
+    acteurs: "RNF (Dijon) · Parc Naturel Marin Estuaire Gironde et Mer des Pertuis (Royan)",
+    droits: "Aucune autorité de gestion. Rôle d'appui, mise en réseau et expertise complémentaire.",
+    son: { freq: 660, type: "sine", duration: 1.6, env: [0.01,0.4,0.75,0.55] }
+  },
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AUDIO — Web Audio API (sons synthétisés, aucun fichier externe)
+// ══════════════════════════════════════════════════════════════════════════════
+let audioCtx = null;
+
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function playSound(config) {
+  try {
+    const ctx = getAudioCtx();
+    if (ctx.state === 'suspended') ctx.resume();
+    const { freq, type, duration, env } = config;
+
+    // Son principal
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const now = ctx.currentTime;
+
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, now);
+    // Légère glissade de hauteur
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.92, now + duration);
+
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.22, now + env[0]);   // attack
+    gain.gain.linearRampToValueAtTime(0.18, now + env[1]);   // decay
+    gain.gain.linearRampToValueAtTime(0.14, now + env[2]);   // sustain
+    gain.gain.linearRampToValueAtTime(0, now + duration);    // release
+
+    // Légère harmonique (octave)
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(freq * 2, now);
+    osc2.frequency.exponentialRampToValueAtTime(freq * 1.95, now + duration);
+    gain2.gain.setValueAtTime(0, now);
+    gain2.gain.linearRampToValueAtTime(0.06, now + env[0]);
+    gain2.gain.linearRampToValueAtTime(0, now + duration * 0.6);
+
+    // Réverbération légère
+    const convolver = ctx.createConvolver ? null : null; // simple delay pour effet
+    const delay = ctx.createDelay(0.5);
+    const delayGain = ctx.createGain();
+    delay.delayTime.value = 0.18;
+    delayGain.gain.value = 0.12;
+
+    osc.connect(gain);
+    gain.connect(delay);
+    gain.connect(ctx.destination);
+    delay.connect(delayGain);
+    delayGain.connect(ctx.destination);
+
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + duration + 0.2);
+    osc2.start(now);
+    osc2.stop(now + duration * 0.6);
+
+  } catch(e) { /* Audio non disponible */ }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RIPPLE ANIMATION
+// ══════════════════════════════════════════════════════════════════════════════
+function addRipple(cx, cy, color) {
+  const container = document.getElementById('ripple-container');
+  const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  circle.setAttribute('cx', cx);
+  circle.setAttribute('cy', cy);
+  circle.setAttribute('r', '10');
+  circle.setAttribute('fill', 'none');
+  circle.setAttribute('stroke', color);
+  circle.setAttribute('stroke-width', '3');
+  circle.classList.add('ripple-circle');
+  container.appendChild(circle);
+  setTimeout(() => circle.remove(), 950);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POPUP
+// ══════════════════════════════════════════════════════════════════════════════
+function openPopup(id) {
+  const a = acteurs[id];
+  if (!a) return;
+
+  document.getElementById('popup-icon-circle').style.background = a.couleur;
+  document.getElementById('popup-icon-circle').textContent = a.emoji;
+  document.getElementById('popup-title').textContent = a.nom;
+  document.getElementById('popup-cat').textContent = a.cat;
+  document.getElementById('popup-body').textContent = a.role;
+  document.getElementById('popup-actors').innerHTML =
+    `<strong>👤 Personnes / structures :</strong><br>${a.acteurs}<br><br><strong>✅ Droits & obligations :</strong><br>${a.droits}`;
+
+  document.getElementById('popup').classList.add('visible');
+  document.getElementById('overlay').classList.add('visible');
+}
+
+function closePopup() {
+  document.getElementById('popup').classList.remove('visible');
+  document.getElementById('overlay').classList.remove('visible');
+}
+
+document.getElementById('overlay').addEventListener('click', closePopup);
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CLICK HANDLERS
+// ══════════════════════════════════════════════════════════════════════════════
+document.querySelectorAll('.marker-group').forEach(el => {
+  el.addEventListener('click', function(e) {
+    e.stopPropagation();
+    const id = this.getAttribute('data-id');
+    const a = acteurs[id];
+    if (!a) return;
+
+    // Ripple(s)
+    addRipple(a.cx, a.cy, a.couleur);
+    setTimeout(() => addRipple(a.cx, a.cy, a.couleur), 200);
+
+    // Animation du marqueur
+    this.style.transform = `translate(${a.cx}px,${a.cy}px) scale(1.3)`;
+    setTimeout(() => {
+      this.style.transform = `translate(${a.cx}px,${a.cy}px) scale(1)`;
+    }, 300);
+
+    // Son
+    playSound(a.son);
+
+    // Popup
+    setTimeout(() => openPopup(id), 100);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FIX TRANSFORM sur les markers (SVG translate dans group vs transform attribute)
+// ══════════════════════════════════════════════════════════════════════════════
+// Les groupes utilisent déjà transform="translate(cx,cy)" en SVG,
+// donc on override le click transform pour ne pas casser le positionnement.
+document.querySelectorAll('.marker-group').forEach(el => {
+  el.addEventListener('click', function() {
+    const orig = this.getAttribute('transform');
+    this.style.transformOrigin = 'center';
+    this.style.transform = 'scale(1.25)';
+    setTimeout(() => { this.style.transform = ''; }, 280);
+  });
+});
+
+// Hint disparaît après 4 s
+setTimeout(() => {
+  const h = document.getElementById('hint');
+  h.style.transition = 'opacity 1s';
+  h.style.opacity = '0';
+}, 4000);
+</script>
+</body>
+</html>
